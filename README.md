@@ -8,6 +8,9 @@ and the summary may drop the wrong details. This plugin addresses both:
 
 - **A PreCompact hook** archives the transcript before every compaction, manual (`/compact`) or automatic, so the
   full history is always kept.
+- **A post-compaction hook** reminds Claude, right after every compaction, to re-read code interfaces before
+  writing code against them, and gives it the real definition lines (with line numbers) of the code files in use, so
+  it does not write function calls, dict keys or file columns from the summary.
 - **A setup skill** (`compact-setup`) walks Claude through setting a smaller auto-compact window (500k tokens by
   default, or a value chosen by an optional *smart analysis* of your own sessions), adding *Compact instructions* to
   `CLAUDE.md` so summaries keep the recent work in detail, and configuring the archive folder.
@@ -105,7 +108,8 @@ Set these in the `env` block of `~/.claude/settings.json`:
   "env": {
     "CLAUDE_TRANSCRIPT_ARCHIVE_DIR": "/Users/me/Dropbox/claude-transcripts",
     "CLAUDE_TRANSCRIPT_ARCHIVE_MODE": "latest",
-    "CLAUDE_TRANSCRIPT_ARCHIVE_EXTRAS": "1"
+    "CLAUDE_TRANSCRIPT_ARCHIVE_EXTRAS": "1",
+    "CLAUDE_COMPACT_INTERFACE_DIGEST": "1"
   }
 }
 ```
@@ -115,6 +119,7 @@ Set these in the `env` block of `~/.claude/settings.json`:
 | `CLAUDE_TRANSCRIPT_ARCHIVE_DIR` | an absolute path; a leading `~/` is expanded; a relative path falls back to the default | `~/claude-transcripts` |
 | `CLAUDE_TRANSCRIPT_ARCHIVE_MODE` | `latest` (one file per session) or `snapshot` (a timestamped copy per compaction) | `latest` |
 | `CLAUDE_TRANSCRIPT_ARCHIVE_EXTRAS` | `1` include the session folder, `0` main transcript only | `1` |
+| `CLAUDE_COMPACT_INTERFACE_DIGEST` | `1` after each compaction, inject the re-read reminder and the definition lines of the code files in use; `0` off | `1` |
 
 ## Choosing the auto-compact window
 
@@ -171,9 +176,23 @@ The skill offers to add this kind of section to `CLAUDE.md`; the full text is in
 - drop dead ends, superseded drafts and long tool output, and point to the archive instead;
 - write out the content of screenshots and images in text, because images do not survive compaction;
 - keep the settings and warnings ("unverified", "placeholder", "do not use") word for word next to each result;
-- state the task state explicitly: what was sent, launched or delivered, and every job still running.
+- state the task state explicitly: what was sent, launched or delivered, and every job still running;
+- for code being worked on, keep signatures, dict keys, file columns and array shapes word for word, and re-read
+  them in the files after a compaction.
 
-The last three come from the author's audit of real compactions, where they were behind the most serious errors.
+The three before the last come from the author's audit of real compactions, where they were behind the most serious
+errors; the last from coding slips after compactions in long research sessions (see `compact-instructions.md`).
+
+## After compaction: re-read the code
+
+Most coding slips after a compaction come from writing against an interface remembered from the summary: a function
+called with arguments in the wrong order, a dict key that is not there, the wrong column of a data file. The
+SessionStart hook (matcher `compact`) runs right after every compaction and adds two things to the new context: a
+short reminder to re-read the real definitions before using them, and the actual definition lines, with line
+numbers, of the code files the session worked on (taken from its transcript) and of those changed in the last
+48 hours in its folder (Python `def`/`class`; Fortran `subroutine`/`function`/`module`/`type`). It costs a few
+thousand tokens per compaction, at most about 18,000 characters, logs to `<archive>/interface_digest.log`, and is
+turned off with `CLAUDE_COMPACT_INTERFACE_DIGEST=0`.
 
 ## Manual install (without the plugin)
 
@@ -201,6 +220,10 @@ The last three come from the author's audit of real compactions, where they were
    ```
 
 3. Copy `plugins/compact-archive/skills/compact-setup/` to `~/.claude/skills/compact-setup/` if you want the skill.
+4. Optional, the post-compaction digest: copy
+   [`post_compact_interfaces.py`](plugins/compact-archive/scripts/post_compact_interfaces.py) next to the archive
+   script and add a `"SessionStart"` entry with `"matcher": "compact"` whose command is
+   `python3 ~/.claude/hooks/post_compact_interfaces.py 2>/dev/null || true`.
 
 Do not use both the plugin and the manual hook, or every compaction is archived twice.
 
@@ -209,6 +232,7 @@ Do not use both the plugin and the manual hook, or every compaction is archived 
 - `bash`, `cp`, `tar`, `find` (standard on macOS and Linux). `jq` or `python3` is used to read the hook input if
   present. Without either, a `sed` fallback handles plain paths only; install `jq` if your paths contain quotes or
   backslashes.
+- The post-compaction digest needs `python3` (3.6+, standard library); without it the hook does nothing.
 - The smart analysis needs `python3` (3.8+, standard library; `matplotlib` optional for a figure) and Claude Code's
   Workflow tool.
 - Tested on macOS with Claude Code 2.1.x. Linux should work; Windows (Git Bash) is untested.

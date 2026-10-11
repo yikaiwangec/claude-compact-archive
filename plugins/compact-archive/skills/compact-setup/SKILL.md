@@ -1,6 +1,6 @@
 ---
 name: compact-setup
-description: Set up cost-saving compaction in Claude Code. Checks that transcripts are archived before every compaction, sets a smaller auto-compact window (500k tokens by default, or a value chosen by an optional smart analysis of the user's own sessions that measures cost and output quality), and adds "Compact instructions" to CLAUDE.md so summaries keep recent work in detail and drop dead ends. Use when the user asks about compaction, /compact, /autocompact, auto-compact thresholds or windows, context or token cost in long sessions, whether compacting earlier hurts quality, or archiving or keeping old transcripts.
+description: Set up cost-saving compaction in Claude Code. Checks that transcripts are archived before every compaction, sets a smaller auto-compact window (500k tokens by default, or a value chosen by an optional smart analysis of the user's own sessions that measures cost and output quality), adds "Compact instructions" to CLAUDE.md so summaries keep recent work in detail and drop dead ends, and after every compaction reminds Claude to re-read code interfaces (with the real definition lines of the files in use) instead of writing code from the summary. Use when the user asks about compaction, /compact, /autocompact, auto-compact thresholds or windows, context or token cost in long sessions, whether compacting earlier hurts quality, or archiving or keeping old transcripts.
 ---
 
 # Compact setup
@@ -13,6 +13,10 @@ that: losing the full history, and a summary that drops the wrong details. This 
    compaction, whether it is manual (`/compact`) or automatic. Nothing is lost when the summary is short.
 2. **Compact earlier.** A smaller auto-compact window (`/autocompact`) makes compaction happen sooner.
 3. **Summarise well.** A "Compact instructions" section in CLAUDE.md tells the summariser what to keep.
+4. **Re-read code after compaction.** The plugin's SessionStart hook (matcher `compact`) runs right after every
+   compaction and adds to the new context a reminder to re-read real interfaces before writing code against them,
+   plus the actual `def`/`class` (Python) and `subroutine`/`function`/`module` (Fortran) lines, with line numbers, of
+   the code files the session worked on and of those changed in the last 48 hours in its folder.
 
 Work through the steps below with the user. Ask before changing any file, and show the exact change.
 
@@ -50,6 +54,14 @@ Work through the steps below with the user. Ask before changing any file, and sh
   The test archive is in the folder named after the temp directory (e.g. `<archive>/tmp.XXXX/`); remove it
   afterwards. If `${CLAUDE_SKILL_DIR}` is not set, find the script with
   `find ~/.claude/plugins -name precompact_archive.sh`.
+
+- The post-compaction interface digest needs `python3` (standard library only). It adds a few thousand tokens per
+  compaction (at most about 18,000 characters). Turn it off with `"CLAUDE_COMPACT_INTERFACE_DIGEST": "0"` in the
+  same `env` block; it logs to `<archive>/interface_digest.log`. To see what it would inject without compacting:
+
+  ```bash
+  echo "{\"cwd\":\"$PWD\",\"source\":\"compact\"}" | python3 "${CLAUDE_SKILL_DIR}/../../scripts/post_compact_interfaces.py"
+  ```
 
 - Claude Code deletes local transcripts after `cleanupPeriodDays` (30 days by default). The archive is not
   affected. To keep the local copies longer as well, raise `cleanupPeriodDays` in `~/.claude/settings.json`.
@@ -124,6 +136,7 @@ user's work if they want (e.g. "running jobs" matters for long computations, "op
 ## Report back
 
 Tell the user what was changed (files, keys, values), where the archive lives, and how to undo it:
-disable the plugin (`/plugin`), remove the `env` keys, run `/autocompact auto`, and delete the CLAUDE.md section.
+disable the plugin (`/plugin`), remove the `env` keys, run `/autocompact auto`, and delete the CLAUDE.md section;
+`CLAUDE_COMPACT_INTERFACE_DIGEST=0` turns off only the post-compaction digest.
 If a smart analysis was run, give the path of its `report.md` and say that the folder holds rendered copies of
 transcripts (private; delete it when no longer needed).

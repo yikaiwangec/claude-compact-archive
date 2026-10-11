@@ -1,5 +1,5 @@
 {
-  "description": "Archive the session transcript before every compaction (manual /compact or auto-compaction)",
+  "description": "Archive the session transcript before every compaction (PreCompact hook); after every compaction, remind Claude to re-read code interfaces and inject the real definition lines of the files in use (SessionStart hook, matcher compact)",
   "hooks": {
     "PreCompact": [
       {
@@ -9,6 +9,19 @@
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/precompact_archive.sh\" 2>/dev/null || true",
             "timeout": 120,
             "statusMessage": "Archiving transcript"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/post_compact_interfaces.py\" 2>/dev/null || true",
+            "timeout": 30,
+            "statusMessage": "Listing code interfaces after compaction"
           }
         ]
       }
